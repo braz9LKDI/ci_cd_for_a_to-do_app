@@ -49,11 +49,13 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p$$MYSQL_ROOT_PASSWORD"]
+      # CMD-SHELL so $MYSQL_ROOT_PASSWORD actually gets expanded.
+      # $$ -> $ after compose interpolation.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 20s
+      retries: 20
+      start_period: 120s
     networks:
       - todo_net
 

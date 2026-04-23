@@ -50,11 +50,16 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p$$MYSQL_ROOT_PASSWORD"]
+      # CMD-SHELL so the shell expands $MYSQL_ROOT_PASSWORD at runtime.
+      # $$ in compose YAML escapes to a literal $ for the container's shell.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 20s
+      retries: 20
+      # First-boot init on a slow VM disk can take 3-5 minutes (InnoDB
+      # initialize + create db + create user + restart). 240s start_period
+      # gives mysql room to finish without compose declaring it unhealthy.
+      start_period: 240s
     # Deliberately NOT exposing 3306 to the host. App reaches it over the
     # internal compose network only.
     networks:
