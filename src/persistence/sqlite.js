@@ -1,6 +1,15 @@
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
-const location = process.env.SQLITE_DB_LOCATION || '/etc/todos/todo.db';
+const path = require('path');
+
+// Default DB location: a `data/` dir relative to the process CWD.
+// This works for both:
+//   - local dev (`npm run dev` from the repo root -> ./data/todo.db)
+//   - containers (WORKDIR=/app -> /app/data/todo.db; the Dockerfile
+//     creates /app/data with correct ownership)
+// Override with SQLITE_DB_LOCATION to point anywhere else.
+const location = process.env.SQLITE_DB_LOCATION
+    || path.join(process.cwd(), 'data', 'todo.db');
 
 let db, dbAll, dbRun;
 
@@ -91,7 +100,7 @@ async function updateItem(id, item) {
             },
         );
     });
-} 
+}
 
 async function removeItem(id) {
     return new Promise((acc, rej) => {

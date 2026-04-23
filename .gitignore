@@ -11,9 +11,9 @@ yarn-error.log*
 !*.env.example
 !**/example.env
 
-# SQLite local dev DB
+# SQLite local dev DB (default location: ./data/)
 *.db
-/etc/todos/
+data/
 
 # Jest / coverage
 coverage/

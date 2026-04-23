@@ -64,10 +64,11 @@ RUN npm install --omit=dev --no-audit --no-fund \
 # Copy application source. .dockerignore keeps this small.
 COPY src ./src
 
-# The app writes the sqlite DB to /etc/todos/todo.db by default when
+# The app writes the sqlite DB to /app/data/todo.db by default when
 # MYSQL_HOST is not set. In production we use MySQL, but we still
-# create the directory so the sqlite fallback works for local runs.
-RUN mkdir -p /etc/todos && chown -R node:node /etc/todos /app
+# create the directory so the sqlite fallback works for single-container
+# runs. Mount a volume at /app/data to persist across restarts.
+RUN mkdir -p /app/data && chown -R node:node /app
 
 # Drop privileges. The `node` user is provided by the official base image.
 USER node
