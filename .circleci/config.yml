@@ -23,6 +23,13 @@ parameters:
     type: string
     default: "br4z/to-do_app"
 
+  # Fully-qualified self-hosted runner resource class (namespace/class).
+  # REPLACE THIS with the name you created in CircleCI UI ->
+  # Organization Settings -> Self-Hosted Runners.
+deploy:
+  machine: true
+  resource_class: braz9LKDI/deploy-vm
+
 # ---------------------------------------------------------------------------
 # Jobs
 # ---------------------------------------------------------------------------
@@ -122,6 +129,82 @@ jobs:
               docker push "<< pipeline.parameters.image_repo >>:${SEMVER}"
             fi
 
+  # -------------------------------------------------------------------------
+  # deploy : run the compose stack on the Vagrant VM via self-hosted runner.
+  #
+  # Executes *on the VM itself* (resource_class points at our runner).
+  # `machine: true` tells CircleCI this is a machine-executor job; on a
+  # self-hosted runner the "machine" is simply the host the runner lives on.
+  #
+  # Secrets:
+  #   - docker-hub Context    -> login to avoid anonymous pull rate limits
+  #   - deploy-secrets Context-> MYSQL_*, written to /opt/deploy/env/*.env
+  # -------------------------------------------------------------------------
+  deploy:
+    machine: true
+    resource_class: << pipeline.parameters.deploy_resource_class >>
+    steps:
+      - checkout
+      - run:
+          name: Log in to Docker Hub
+          command: |
+            echo "$DOCKERHUB_TOKEN" | docker login \
+              --username "$DOCKERHUB_USERNAME" --password-stdin
+      - run:
+          name: Seed /opt/deploy/env/ from CircleCI Context
+          # Writes two env files with tight perms (0600, owned by the
+          # runner user). These are ignored by git and never copied off
+          # the VM. Rewriting each deploy means a rotation is "push a
+          # new pipeline", not "SSH into the VM".
+          command: |
+            install -d -m 0750 /opt/deploy/env /opt/deploy/app
+
+            umask 077
+            cat > /opt/deploy/env/mysql.env <<EOF
+            MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+            MYSQL_DATABASE=${MYSQL_DATABASE}
+            MYSQL_USER=${MYSQL_USER}
+            MYSQL_PASSWORD=${MYSQL_PASSWORD}
+            EOF
+
+            cat > /opt/deploy/env/app.env <<EOF
+            MYSQL_HOST=mysql
+            MYSQL_DB=${MYSQL_DATABASE}
+            MYSQL_USER=${MYSQL_USER}
+            MYSQL_PASSWORD=${MYSQL_PASSWORD}
+            EOF
+      - run:
+          name: Pull image and (re)start the stack
+          command: |
+            # Tag the freshly-built image by short SHA. Same derivation
+            # as build_and_push -- we MUST agree on the tag.
+            export APP_IMAGE_TAG="${CIRCLE_SHA1:0:7}"
+            echo "Deploying tag: ${APP_IMAGE_TAG}"
+
+            docker compose -f docker-compose.deploy.yml pull
+            docker compose -f docker-compose.deploy.yml up -d --remove-orphans
+      - run:
+          name: Wait for health and smoke-test the API
+          # Poll the app for up to 60s. On failure, dump logs so CI output
+          # is actually useful instead of just "non-zero exit".
+          command: |
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:3000/items >/dev/null 2>&1; then
+                echo "app healthy after ${i} attempt(s)"
+                curl -s http://127.0.0.1:3000/items
+                exit 0
+              fi
+              sleep 2
+            done
+
+            echo "app did NOT become healthy. Diagnostics:"
+            docker compose -f docker-compose.deploy.yml ps
+            echo '--- app logs ---'
+            docker compose -f docker-compose.deploy.yml logs --tail=100 app || true
+            echo '--- mysql logs ---'
+            docker compose -f docker-compose.deploy.yml logs --tail=50 mysql || true
+            exit 1
+
 # ---------------------------------------------------------------------------
 # Workflow
 # ---------------------------------------------------------------------------
@@ -142,6 +225,22 @@ workflows:
             - docker-hub
           requires:
             - test
+          filters:
+            branches:
+              only:
+                - main
+            tags:
+              only: /^v\d+\.\d+\.\d+$/
+
+      # Deploy only after build_and_push succeeds. Same branch/tag filter.
+      # Needs both Contexts: docker-hub (for login), deploy-secrets (for
+      # MYSQL_* passwords seeded into /opt/deploy/env/).
+      - deploy:
+          context:
+            - docker-hub
+            - deploy-secrets
+          requires:
+            - build_and_push
           filters:
             branches:
               only:
