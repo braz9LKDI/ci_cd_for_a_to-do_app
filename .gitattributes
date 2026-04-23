@@ -1,0 +1,16 @@
+# Force LF line endings for anything executed inside the Linux VM or a
+# Linux container. Without this, cloning on Windows can silently convert
+# shell scripts to CRLF and break shebangs.
+
+*.sh        text eol=lf
+*.bash      text eol=lf
+Dockerfile  text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+Vagrantfile text eol=lf
+
+# Binary-ish
+*.png binary
+*.jpg binary
+*.ico binary
+*.box binary

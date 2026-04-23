@@ -1,0 +1,150 @@
+# -----------------------------------------------------------------------------
+# CircleCI pipeline for the ToDoApp workshop.
+#
+# Current jobs:
+#   - test            : runs Jest on every push to every branch
+#   - build_and_push  : builds the Docker image and pushes to Docker Hub.
+#                       Only runs on `main` and on git tags matching v*.*.*
+#
+# The `deploy` job will be added in Step 7, running on a self-hosted
+# runner installed on the Vagrant VM.
+#
+# Secrets come from the `docker-hub` Context (see docs/CI_SETUP.md).
+# NEVER put secrets in this file.
+# -----------------------------------------------------------------------------
+
+version: 2.1
+
+# ---------------------------------------------------------------------------
+# Reusable settings
+# ---------------------------------------------------------------------------
+parameters:
+  image_repo:
+    type: string
+    default: "br4z/to-do_app"
+
+# ---------------------------------------------------------------------------
+# Jobs
+# ---------------------------------------------------------------------------
+jobs:
+
+  # -------------------------------------------------------------------------
+  # test : install deps + run the Jest suite.
+  # Runs on CircleCI's cloud Node executor. Fast, no Docker needed.
+  # -------------------------------------------------------------------------
+  test:
+    docker:
+      - image: cimg/node:18.20
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - v1-npm-{{ checksum "package-lock.json" }}
+            - v1-npm-
+      - run:
+          name: Install dependencies
+          # `npm install` (not `npm ci`) because package-lock.json is out of
+          # sync with package.json in this repo (yarn-only `resolutions`
+          # field). See Dockerfile for the same workaround.
+          command: npm install --no-audit --no-fund
+      - save_cache:
+          key: v1-npm-{{ checksum "package-lock.json" }}
+          paths:
+            - ~/.npm
+      - run:
+          name: Run Jest
+          command: npm test -- --ci --runInBand
+
+  # -------------------------------------------------------------------------
+  # build_and_push : build the runtime image and push to Docker Hub.
+  # Uses the `machine` executor so we get a real Docker daemon (faster and
+  # simpler than setup_remote_docker for multi-stage builds).
+  #
+  # Two tags are pushed for every successful build on main:
+  #   - <short-sha>   : immutable reference tied to the exact commit
+  #   - latest        : moving pointer for convenience / local testing
+  #
+  # When a git tag matching v*.*.* is pushed, that tag is ALSO applied
+  # to the image (e.g. v0.1.0 -> br4z/to-do_app:0.1.0).
+  # -------------------------------------------------------------------------
+  build_and_push:
+    machine:
+      image: ubuntu-2204:current
+    steps:
+      - checkout
+      - run:
+          name: Compute image tags
+          command: |
+            # Short SHA (7 chars) is the primary immutable tag.
+            SHORT_SHA="${CIRCLE_SHA1:0:7}"
+            echo "export SHORT_SHA=${SHORT_SHA}" >> "$BASH_ENV"
+
+            # If the build was triggered by a git tag like v1.2.3,
+            # derive 1.2.3 as an extra semver tag.
+            if [[ "${CIRCLE_TAG:-}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              SEMVER="${BASH_REMATCH[1]}"
+              echo "export SEMVER=${SEMVER}" >> "$BASH_ENV"
+            fi
+
+            echo "SHORT_SHA=${SHORT_SHA}"
+            echo "SEMVER=${SEMVER:-<none>}"
+      - run:
+          name: Log in to Docker Hub
+          command: |
+            echo "$DOCKERHUB_TOKEN" | docker login \
+              --username "$DOCKERHUB_USERNAME" \
+              --password-stdin
+      - run:
+          name: Build runtime image (runs tests inside the test stage too)
+          command: |
+            # Build test stage first so a failing test breaks the pipeline
+            # even if someone disables the `test` job above.
+            docker build --target test -t ttd-test .
+
+            # Then build the real runtime image with both tags.
+            docker build --target runtime \
+              -t "<< pipeline.parameters.image_repo >>:${SHORT_SHA}" \
+              -t "<< pipeline.parameters.image_repo >>:latest" \
+              .
+
+            # Optional semver tag when triggered by a git tag.
+            if [ -n "${SEMVER:-}" ]; then
+              docker tag \
+                "<< pipeline.parameters.image_repo >>:${SHORT_SHA}" \
+                "<< pipeline.parameters.image_repo >>:${SEMVER}"
+            fi
+      - run:
+          name: Push to Docker Hub
+          command: |
+            docker push "<< pipeline.parameters.image_repo >>:${SHORT_SHA}"
+            docker push "<< pipeline.parameters.image_repo >>:latest"
+            if [ -n "${SEMVER:-}" ]; then
+              docker push "<< pipeline.parameters.image_repo >>:${SEMVER}"
+            fi
+
+# ---------------------------------------------------------------------------
+# Workflow
+# ---------------------------------------------------------------------------
+workflows:
+  version: 2
+
+  ci:
+    jobs:
+      # Run tests on every push, including tags.
+      - test:
+          filters:
+            tags:
+              only: /.*/
+
+      # Build + push only on main or on v*.*.* tags, and only if tests pass.
+      - build_and_push:
+          context:
+            - docker-hub
+          requires:
+            - test
+          filters:
+            branches:
+              only:
+                - main
+            tags:
+              only: /^v\d+\.\d+\.\d+$/

@@ -1,0 +1,16 @@
+# Vagrant runtime state
+.vagrant/
+*.log
+
+# Local env overrides (may contain secrets later)
+env/.env
+env/*.local.env
+.env
+
+# Editor / OS noise
+*.swp
+.DS_Store
+Thumbs.db
+
+# Box artifacts
+*.box

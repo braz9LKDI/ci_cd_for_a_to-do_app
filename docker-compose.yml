@@ -1,0 +1,66 @@
+# -----------------------------------------------------------------------------
+# docker-compose.yml  (LOCAL / DEV stack)
+#
+# Use this for running the stack from source on a developer machine or on the
+# Vagrant VM for smoke-testing. Builds the image from the local Dockerfile.
+#
+# For CI-driven deployments we do NOT use this file. See
+# docker-compose.deploy.yml (which pulls the pre-built image from Docker Hub).
+#
+# Usage:
+#   cp .env.example .env        # fill in passwords
+#   docker compose up --build
+# -----------------------------------------------------------------------------
+
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+    image: br4z/to-do_app:local
+    container_name: todo_app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # The app switches to MySQL mode as soon as MYSQL_HOST is set.
+      # See src/persistence/index.js.
+      MYSQL_HOST: mysql
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DB: ${MYSQL_DB}
+    ports:
+      - "3000:3000"
+    networks:
+      - todo_net
+
+  mysql:
+    image: mysql:8.0
+    container_name: todo_mysql
+    restart: unless-stopped
+    # mysql_native_password keeps the older `mysql` npm client (v2.17) happy.
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DB}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - todo_net
+
+volumes:
+  mysql_data:
+    name: todo_mysql_data
+
+networks:
+  todo_net:
+    name: todo_net

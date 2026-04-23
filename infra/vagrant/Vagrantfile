@@ -1,0 +1,162 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+#
+# Provider-agnostic Vagrantfile for a future Ubuntu deployment target.
+#
+# This file is intentionally written so that it can be used with either
+# Hyper-V or VirtualBox (or any other Vagrant provider) without changes.
+# The actual provider is selected at `vagrant up` time via either the
+# VAGRANT_DEFAULT_PROVIDER environment variable or the `--provider` flag.
+#
+# Example:
+#   vagrant up --provider=virtualbox
+#   vagrant up --provider=hyperv
+#
+# NOTE: No provider-specific configuration is enabled by default. The
+# provider blocks below are COMMENTED OUT on purpose. Uncomment the
+# block that matches the provider you eventually decide to use.
+
+# ---------------------------------------------------------------------------
+# Configuration variables (edit these, not the logic below)
+# ---------------------------------------------------------------------------
+
+# Ubuntu base box. Kept as a variable so it is easy to bump later.
+#
+# IMPORTANT: bento boxes do NOT ship a Hyper-V build. For the Hyper-V
+# provider we use "generic/ubuntu2204" which is packaged for multiple
+# providers including hyperv, virtualbox, libvirt, parallels, vmware.
+# See https://app.vagrantup.com/generic/boxes/ubuntu2204
+BOX_NAME       = ENV.fetch("VAGRANT_BOX",        "generic/ubuntu2204")
+
+# VM identity
+VM_HOSTNAME    = ENV.fetch("VAGRANT_HOSTNAME",   "deploy-target")
+
+# Resources
+VM_CPUS        = Integer(ENV.fetch("VAGRANT_CPUS",   "2"))
+VM_MEMORY_MB   = Integer(ENV.fetch("VAGRANT_MEMORY", "4096"))
+
+# Synced folder configuration.
+# We mount the repo root at /vagrant-project inside the VM so deployment
+# assets (deploy/, docker-compose.deploy.yml, etc.) are accessible.
+# "disabled" can be toggled via env var because some providers / hosts
+# (notably Hyper-V without SMB set up) struggle with synced folders.
+SYNC_HOST_PATH   = ENV.fetch("VAGRANT_SYNC_HOST",  "../../")
+SYNC_GUEST_PATH  = ENV.fetch("VAGRANT_SYNC_GUEST", "/vagrant-project")
+#
+# Default is DISABLED for the Hyper-V path because Hyper-V synced folders
+# require SMB, which wants your Windows account password. Inside the VM
+# you can `git clone` the repo directly (simpler, no secrets). Set
+# VAGRANT_SYNC_DISABLED=false and set VAGRANT_SMB_USER/PASS to enable it.
+SYNC_DISABLED    = ENV.fetch("VAGRANT_SYNC_DISABLED", "true") == "true"
+
+# ---------------------------------------------------------------------------
+# Vagrant configuration
+# ---------------------------------------------------------------------------
+Vagrant.configure("2") do |config|
+
+  # Base box -----------------------------------------------------------------
+  config.vm.box = BOX_NAME
+
+  # Networking & identity ----------------------------------------------------
+  config.vm.hostname = VM_HOSTNAME
+
+  # A private network is commented out because the usable network mode
+  # differs per provider (Hyper-V typically needs an external switch,
+  # VirtualBox is happy with host-only). Enable whichever you need.
+  #
+  # config.vm.network "private_network", type: "dhcp"
+  # config.vm.network "private_network", ip: "192.168.56.10"
+
+  # Synced folders -----------------------------------------------------------
+  # The default /vagrant sync is left at Vagrant's defaults. Our custom
+  # mount is opt-out via VAGRANT_SYNC_DISABLED=true for providers where
+  # folder sharing is not yet configured.
+  if SYNC_DISABLED
+    config.vm.synced_folder ".", "/vagrant", disabled: true
+  else
+    config.vm.synced_folder SYNC_HOST_PATH, SYNC_GUEST_PATH
+  end
+
+  # -------------------------------------------------------------------------
+  # Provider-specific examples (ALL COMMENTED OUT ON PURPOSE)
+  #
+  # Uncomment exactly ONE of the blocks below once you have decided on a
+  # provider. Do not uncomment both.
+  # -------------------------------------------------------------------------
+
+  # --- VirtualBox example ---------------------------------------------------
+  # config.vm.provider "virtualbox" do |vb|
+  #   vb.name   = VM_HOSTNAME
+  #   vb.cpus   = VM_CPUS
+  #   vb.memory = VM_MEMORY_MB
+  #   # vb.gui  = false
+  #   # vb.customize ["modifyvm", :id, "--ioapic", "on"]
+  # end
+
+  # --- Hyper-V (ACTIVE) -----------------------------------------------------
+  # Run from an ELEVATED PowerShell on Windows:
+  #   vagrant up --provider=hyperv
+  # (Or set VAGRANT_DEFAULT_PROVIDER=hyperv in env/.env and just `vagrant up`.)
+  config.vm.provider "hyperv" do |hv|
+    hv.vmname        = VM_HOSTNAME
+    hv.cpus          = VM_CPUS
+    # Set BOTH memory and maxmemory to the same value to effectively
+    # disable Hyper-V dynamic memory. Without this, some boxes (e.g.
+    # generic/ubuntu2204) ship with a template minimum greater than
+    # what Vagrant passes as the maximum, which fails at import with
+    # "Maximum memory value is less than required minimum memory value".
+    hv.memory        = VM_MEMORY_MB
+    hv.maxmemory     = VM_MEMORY_MB
+    hv.linked_clone  = true    # faster cloning, smaller disk footprint
+    # hv.enable_virtualization_extensions = true   # only if you want nested virt
+  end
+
+  # Default Switch is used automatically by Hyper-V when no network block
+  # is set. It provides outbound NAT, which is all the CircleCI runner
+  # needs (it polls CircleCI over HTTPS outbound). The VM's IP will be
+  # dynamic -- `vagrant ssh` resolves it for you.
+
+  # SMB-based synced folder (opt-in, see SYNC_DISABLED default above):
+  # config.vm.synced_folder SYNC_HOST_PATH, SYNC_GUEST_PATH,
+  #                         type: "smb",
+  #                         smb_username: ENV["VAGRANT_SMB_USER"],
+  #                         smb_password: ENV["VAGRANT_SMB_PASS"]
+
+  # -------------------------------------------------------------------------
+  # Provisioning
+  #
+  # Each script is intentionally small and idempotent so that
+  # `vagrant provision` can be run repeatedly without side effects.
+  # Order matters: bootstrap -> docker -> user/dirs -> verify.
+  # -------------------------------------------------------------------------
+  config.vm.provision "bootstrap",
+    type: "shell",
+    path: "scripts/bootstrap.sh"
+
+  config.vm.provision "install-docker",
+    type: "shell",
+    path: "scripts/install_docker.sh"
+
+  config.vm.provision "configure-user",
+    type: "shell",
+    path: "scripts/configure_user.sh"
+
+  config.vm.provision "verify",
+    type: "shell",
+    path: "scripts/verify_setup.sh"
+
+  # -------------------------------------------------------------------------
+  # FUTURE: CircleCI machine runner installation.
+  #
+  # A dedicated provisioner will be added here once the workshop provides
+  # the runner token and resource-class name. Keep this as a placeholder:
+  #
+  # config.vm.provision "circleci-runner",
+  #   type: "shell",
+  #   path: "scripts/install_circleci_runner.sh",
+  #   env: {
+  #     "CIRCLECI_RUNNER_TOKEN"         => ENV["CIRCLECI_RUNNER_TOKEN"],
+  #     "CIRCLECI_RUNNER_RESOURCE_CLASS"=> ENV["CIRCLECI_RUNNER_RESOURCE_CLASS"]
+  #   }
+  # -------------------------------------------------------------------------
+end

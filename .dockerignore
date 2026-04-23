@@ -1,0 +1,43 @@
+# Keep the build context small and deterministic.
+
+# Dependencies — installed inside the image instead.
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Version control / CI metadata
+.git
+.gitignore
+.github
+.circleci
+
+# Note: `spec/` is intentionally NOT ignored here because the `test` stage
+# of the Dockerfile needs it. The runtime stage only does `COPY src ./src`,
+# so tests never end up in the final image anyway.
+
+# Infrastructure — not needed inside the app image
+infra
+deploy
+Vagrantfile
+docker-compose*.yml
+
+# Editor / OS
+.vscode
+.idea
+*.swp
+.DS_Store
+Thumbs.db
+
+# Env files — never bake secrets into images
+.env
+*.env
+!**/example.env
+
+# Docs that don't affect runtime
+README.md
+*.md
+
+# Windows "Zone.Identifier" alternate-data-stream artifacts that show up
+# when files are copied from the Windows host into WSL.
+**/*.Zone.Identifier
+**/*:Zone.Identifier

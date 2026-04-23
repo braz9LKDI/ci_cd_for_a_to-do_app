@@ -1,0 +1,69 @@
+# -----------------------------------------------------------------------------
+# docker-compose.deploy.yml  (DEPLOY stack — used on the Vagrant VM by CI)
+#
+# Pulls the pre-built image from Docker Hub rather than building from source.
+# Image tag is injected via the APP_IMAGE_TAG env var (set by CircleCI to the
+# git SHA; falls back to "latest" for manual deploys).
+#
+# Secrets are NOT stored in this file. They live in /opt/deploy/env/app.env
+# on the VM, which is populated out-of-band (by the deploy job, via SSH, or
+# by a secrets manager) and is never committed.
+#
+# Usage (on the VM):
+#   export APP_IMAGE_TAG=<git-sha>
+#   docker compose -f docker-compose.deploy.yml pull
+#   docker compose -f docker-compose.deploy.yml up -d
+# -----------------------------------------------------------------------------
+
+services:
+  app:
+    image: br4z/to-do_app:${APP_IMAGE_TAG:-latest}
+    container_name: todo_app
+    restart: unless-stopped
+    pull_policy: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    env_file:
+      # Contains: MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB
+      # MYSQL_HOST is set explicitly below so the env file can't accidentally
+      # override the service name.
+      - /opt/deploy/env/app.env
+    environment:
+      MYSQL_HOST: mysql
+    ports:
+      # Exposed on the VM's interfaces. Change left side to bind to a
+      # specific IP (e.g. "127.0.0.1:3000:3000") if you front this with
+      # a reverse proxy later.
+      - "3000:3000"
+    networks:
+      - todo_net
+
+  mysql:
+    image: mysql:8.0
+    container_name: todo_mysql
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    env_file:
+      # Contains: MYSQL_ROOT_PASSWORD, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD
+      - /opt/deploy/env/mysql.env
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    # Deliberately NOT exposing 3306 to the host. App reaches it over the
+    # internal compose network only.
+    networks:
+      - todo_net
+
+volumes:
+  mysql_data:
+    name: todo_mysql_data
+
+networks:
+  todo_net:
+    name: todo_net

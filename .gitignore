@@ -1,0 +1,34 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env files — NEVER commit real secrets.
+# Templates ending in .example ARE committed.
+.env
+*.env
+!*.env.example
+!**/example.env
+
+# SQLite local dev DB
+*.db
+/etc/todos/
+
+# Jest / coverage
+coverage/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Windows alternate data stream artifacts (appear when copying from Windows to WSL)
+*.Zone.Identifier
+*:Zone.Identifier
+
+# Vagrant (the scaffold also has its own .gitignore inside infra/vagrant/)
+.vagrant/
+*.box
