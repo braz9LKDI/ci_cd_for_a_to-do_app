@@ -23,13 +23,6 @@ parameters:
     type: string
     default: "br4z/to-do_app"
 
-  # Fully-qualified self-hosted runner resource class (namespace/class).
-  # REPLACE THIS with the name you created in CircleCI UI ->
-  # Organization Settings -> Self-Hosted Runners.
-deploy:
-  machine: true
-  resource_class: braz9LKDI/deploy-vm
-
 # ---------------------------------------------------------------------------
 # Jobs
 # ---------------------------------------------------------------------------
@@ -142,7 +135,8 @@ jobs:
   # -------------------------------------------------------------------------
   deploy:
     machine: true
-    resource_class: << pipeline.parameters.deploy_resource_class >>
+    # If you change the namespace/class in CircleCI UI, update this string.
+    resource_class: braz9lkdi/deploy-vm
     steps:
       - checkout
       - run:
@@ -160,14 +154,14 @@ jobs:
             install -d -m 0750 /opt/deploy/env /opt/deploy/app
 
             umask 077
-            cat > /opt/deploy/env/mysql.env <<EOF
+            cat > /opt/deploy/env/mysql.env \<<EOF
             MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
             MYSQL_DATABASE=${MYSQL_DATABASE}
             MYSQL_USER=${MYSQL_USER}
             MYSQL_PASSWORD=${MYSQL_PASSWORD}
             EOF
 
-            cat > /opt/deploy/env/app.env <<EOF
+            cat > /opt/deploy/env/app.env \<<EOF
             MYSQL_HOST=mysql
             MYSQL_DB=${MYSQL_DATABASE}
             MYSQL_USER=${MYSQL_USER}

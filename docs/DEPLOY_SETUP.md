@@ -4,27 +4,25 @@ The deploy job runs on the Vagrant VM via the self-hosted runner you set
 up in Step 6. It pulls the freshly-built image, (re)starts the compose
 stack, and smoke-tests `/items`.
 
-## 1. Replace the placeholder resource class
+## 1. Set the resource class
 
-Open `.circleci/config.yml` and find:
-
-```yaml
-deploy_resource_class:
-  type: string
-  default: "REPLACE_ME/deploy-vm"
-```
-
-Change `REPLACE_ME` to **your actual CircleCI namespace**. If you named
-the resource class something other than `deploy-vm`, change that too.
-
-Example (adjust to your namespace):
+The `deploy` job in `.circleci/config.yml` has a literal
+`resource_class:` value:
 
 ```yaml
-default: "long-term-effects-of-suffering/deploy-vm"
+deploy:
+  machine: true
+  resource_class: braz9LKDI/deploy-vm
 ```
 
-You can find the exact string in CircleCI UI -> Organization Settings
--> Self-Hosted Runners.
+If your namespace or class name is different, update that string. You
+can find the exact value in CircleCI UI -> Organization Settings ->
+Self-Hosted Runners.
+
+**Note on escaping:** CircleCI 2.1 treats `<<` as parameter syntax, so
+the heredocs in the deploy job are written `\<<EOF` (with a backslash).
+This is a CircleCI quirk, not bash -- at runtime bash sees a normal
+`<<EOF`.
 
 ## 2. Re-run the runner provisioner
 
